@@ -7,8 +7,10 @@ on:
     branches: [ "main" ]
 
 jobs:
-  build-and-test:
+  test_and_verify:
     runs-on: ubuntu-latest
+    # 에뮬레이터 구동을 위해 넉넉한 타임아웃 설정
+    timeout-minutes: 20
 
     steps:
       - name: Checkout Code
@@ -21,12 +23,32 @@ jobs:
           distribution: 'temurin'
           cache: gradle
 
-      - name: Grant Execute Permission for Gradlew
+      - name: Grant Execute Permission
         run: chmod +x gradlew
 
-      # [전략적 수정] 인프라 이슈를 회피하기 위해 JUnit 중심 검증으로 전환
-      - name: Run Unit Tests (JUnit)
+      # 1단계: 유닛 테스트 (로직 검증 - 가장 빠름)
+      - name: Run Unit Tests
         run: ./gradlew test
 
-      - name: Build Debug APK
-        run: ./gradlew assembleDebug
+      # 2단계: 에뮬레이터 구동 및 에스프레소 테스트 (UI 검증)
+      - name: Run Instrumented Tests
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 29
+          target: google_apis
+          arch: x86_64
+          force-avd-creation: false
+          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-off
+          disable-animations: true
+          # [핵심 최적화] 기기가 완전히 준비될 때까지 꼼꼼하게 대기 후 설치
+          script: |
+            adb wait-for-device
+            echo "Waiting for emulator to boot..."
+            until adb shell getprop sys.boot_completed | grep -m 1 '1'; do sleep 2; done
+            echo "Emulator booted! Starting tests..."
+            
+            # Split APK 에러 방지 및 설치 강제 옵션
+            ./gradlew connectedAndroidTest \
+              -Pandroid.injected.testOnly=false \
+              -Pandroid.modules.installall=true \
+              --stacktrace
