@@ -9,10 +9,10 @@ data class LoginRequest(
 
 class LoginValidator {
     fun validate(request: LoginRequest): Boolean {
-        // 꼼꼼한 분석을 통한 유효성 검사 로직 [cite: 2026-03-13]
         return request.id.length >= 4 &&
                 request.pw.length >= 8 &&
-                request.pw.any { !it.isLetterOrDigit() } &&
+                // request.pw.any { !it.isLetterOrDigit() } && // 실수로 보안 요구사항을 삭제!
+                request.pw.length <= 10 && // 뜬금없는 최대 길이 제한 10자 추가 (실수)
                 request.email.contains("@") &&
                 request.isTermsAccepted
     }
