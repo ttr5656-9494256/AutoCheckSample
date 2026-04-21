@@ -14,7 +14,6 @@ class LoginValidator {
                 request.pw.length >= 8 &&
                 request.pw.any { !it.isLetterOrDigit() } &&
                 request.email.contains("@") &&
-                request.email.contains(".") &&
                 request.isTermsAccepted
     }
 }
