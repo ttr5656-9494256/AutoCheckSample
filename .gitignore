@@ -1,3 +1,4 @@
+# [빌드 결과물] - 깃허브 서버가 직접 새로 빌드해야 하므로 제외합니다.
 *.iml
 .gradle
 /local.properties
@@ -13,3 +14,19 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# [안드로이드 스튜디오 설정]
+*.keystore
+!debug.keystore
+google-services.json
+
+# [테스트 결과 리포트]
+/app/build/reports
+/app/build/test-results
+/app/build/outputs/androidTest-results
+/app/build/outputs/apk/androidTest
+
+# [기타 최적화]
+*.swp
+*~
+.DS_Store
