@@ -8,7 +8,8 @@ on:
 
 jobs:
   test_and_verify:
-    runs-on: ubuntu-latest # 깃허브가 제공하는 최신 리눅스 서버
+    runs-on: ubuntu-latest
+    timeout-minutes: 15 # 전체 작업에 대한 안전장치
 
     steps:
       - name: Checkout Code
@@ -19,24 +20,20 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
-          cache: gradle # 빌드 속도 최적화 [cite: 2026-01-12]
+          cache: gradle
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      # [1단계] 유닛 테스트 (로직 검증)
       - name: Run Unit Tests
         run: ./gradlew test
-          
-          # [2단계] UI 검증 (시연용 초고속 버전)
-         - name: Run Instrumented Tests
-         uses: reactivecircus/android-emulator-runner@v2
-         with:
-           api-level: 29          # 안드로이드 10 (가장 가볍고 부팅이 빠름)
-           target: default        # Google Play 서비스 없는 기본 버전이 더 빠름
-           arch: x86              # 64비트보다 연산 부하가 적음
-           disable-animations: true
-           force-avd-creation: true
-           script: ./gradlew connectedAndroidTest
-         timeout-minutes: 5       # 5분 안에 안 켜지면 인프라 문제로 간주하고 칼같이 중단!
 
+      - name: Run Instrumented Tests
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 29
+          target: default
+          arch: x86
+          disable-animations: true
+          force-avd-creation: true
+          script: ./gradlew connectedAndroidTest
