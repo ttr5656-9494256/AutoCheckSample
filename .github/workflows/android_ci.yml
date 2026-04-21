@@ -1,4 +1,4 @@
-name: Android CI/CD Automation
+name: Android Production CI (Firebase Test Lab)
 
 on:
   push:
@@ -7,11 +7,8 @@ on:
     branches: [ "main" ]
 
 jobs:
-  test_and_verify:
+  build_and_test:
     runs-on: ubuntu-latest
-    # 에뮬레이터 구동을 위해 넉넉한 타임아웃 설정
-    timeout-minutes: 20
-
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -26,29 +23,29 @@ jobs:
       - name: Grant Execute Permission
         run: chmod +x gradlew
 
-      # 1단계: 유닛 테스트 (로직 검증 - 가장 빠름)
+      # 1. 유닛 테스트 실행 (가장 기본 로직 검증)
       - name: Run Unit Tests
         run: ./gradlew test
 
-      # 2단계: 에뮬레이터 구동 및 에스프레소 테스트 (UI 검증)
-      - name: Run Instrumented Tests
-        uses: reactivecircus/android-emulator-runner@v2
+      # 2. 테스트용 APK 빌드 (앱 본체 + 테스트 코드)
+      - name: Build APKs for Testing
+        run: ./gradlew assembleDebug assembleDebugAndroidTest
+
+      # 3. Google Cloud 인증 (효재님이 등록한 GCP_SA_KEY 사용)
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
         with:
-          api-level: 29
-          target: google_apis
-          arch: x86_64
-          force-avd-creation: false
-          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-off
-          disable-animations: true
-          # [핵심 최적화] 기기가 완전히 준비될 때까지 꼼꼼하게 대기 후 설치
-          script: |
-            adb wait-for-device
-            echo "Waiting for emulator to boot..."
-            until adb shell getprop sys.boot_completed | grep -m 1 '1'; do sleep 2; done
-            echo "Emulator booted! Starting tests..."
-            
-            # Split APK 에러 방지 및 설치 강제 옵션
-            ./gradlew connectedAndroidTest \
-              -Pandroid.injected.testOnly=false \
-              -Pandroid.modules.installall=true \
-              --stacktrace
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      # 4. Firebase Test Lab 실행 (구글 실기기에서 Espresso 실행)
+      - name: Run Espresso Tests on Firebase Test Lab
+        run: |
+          gcloud firebase test android run \
+            --type instrumentation \
+            --app app/build/outputs/apk/debug/app-debug.apk \
+            --test app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk \
+            --device model=redwood,version=30,locale=ko,orientation=portrait \
+            --timeout 10m
