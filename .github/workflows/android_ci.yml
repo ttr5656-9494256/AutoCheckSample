@@ -41,11 +41,12 @@ jobs:
         uses: google-github-actions/setup-gcloud@v2
 
       # 4. Firebase Test Lab 실행 (구글 실기기에서 Espresso 실행)
+      # Firebase Test Lab 실행 (기기 모델명을 더 범용적인 것으로 변경)
       - name: Run Espresso Tests on Firebase Test Lab
         run: |
           gcloud firebase test android run \
             --type instrumentation \
             --app app/build/outputs/apk/debug/app-debug.apk \
             --test app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk \
-            --device model=redwood,version=30,locale=ko,orientation=portrait \
+            --device model=Pixel5,version=30,locale=ko,orientation=portrait \
             --timeout 10m
