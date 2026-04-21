@@ -9,7 +9,7 @@ on:
 jobs:
   test_and_verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 15 # 전체 작업에 대한 안전장치
+    timeout-minutes: 20
 
     steps:
       - name: Checkout Code
@@ -34,6 +34,9 @@ jobs:
           api-level: 29
           target: default
           arch: x86
+          profile: Nexus 6
           disable-animations: true
           force-avd-creation: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
           script: ./gradlew connectedAndroidTest
+        timeout-minutes: 10
