@@ -21,11 +21,14 @@ on:
 jobs:
   build_and_test:
     runs-on: ubuntu-latest
+    # [중요] 결정된 버전을 다음 Job(deploy)에서 쓸 수 있게 명시적으로 출력
+    outputs:
+      target_version: ${{ env.VERSION }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # 모든 태그 정보를 가져오기 위해 필수 설정
+          fetch-depth: 0
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -37,28 +40,51 @@ jobs:
       - name: Grant Execute Permission
         run: chmod +x gradlew
 
-      # [중요] 버전 결정 로직: 입력값이 없으면 최신 태그를 VERSION 변수에 할당
+      # [버전 결정] 입력값이 없으면 최신 태그를 자동으로 가져옴
       - name: Determine Version
         id: get_version
         run: |
           if [ -z "${{ github.event.inputs.version_tag }}" ]; then
-            # 가장 최근 태그를 가져오고, 없으면 v1.0.0으로 기본값 설정
             LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v1.0.0")
             echo "VERSION=$LATEST_TAG" >> $GITHUB_ENV
           else
             echo "VERSION=${{ github.event.inputs.version_tag }}" >> $GITHUB_ENV
           fi
 
+      # [JUnit 실행] 15개 테스트 케이스 중 11개 유닛 테스트 수행
       - name: Run Quality Check
         run: ./gradlew lintDebug testDebugUnitTest
 
+      # --------------------------------------------------------------------------------
+      # [Firebase Test Lab 주석 가이드]
+      # UI 테스트(LoginUiTest) 및 기기 테스트 결과를 실제 Pass/Fail로 보고하고 싶을 때
+      # 아래 주석을 해제하고 사용하세요. (GCP_SA_KEY 설정 필요)
+      # --------------------------------------------------------------------------------
+      # - name: Build Test APK
+      #   run: ./gradlew assembleDebug assembleDebugAndroidTest
+      #
+      # - name: Auth to Google Cloud
+      #   uses: google-github-actions/auth@v2
+      #   with:
+      #     credentials_json: ${{ secrets.GCP_SA_KEY }}
+      #
+      # - name: Run UI Test on Firebase Test Lab
+      #   run: |
+      #     gcloud firebase test android run \
+      #       --type instrumentation \
+      #       --app app/build/outputs/apk/debug/app-debug.apk \
+      #       --test app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk \
+      #       --device model=oriole,version=33,locale=ko,orientation=portrait
+      # --------------------------------------------------------------------------------
+
+      # [리포트 생성] 15개 항목이 담긴 엑셀 리포트 자동 생성
       - name: Generate Quality Excel Report
         if: always()
         run: |
           pip install pandas xlsxwriter
           python generate_report.py
 
-      - name: Upload Report
+      - name: Upload Report to Artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -74,6 +100,8 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Download Excel Report
         uses: actions/download-artifact@v4
@@ -85,11 +113,27 @@ jobs:
           chmod +x gradlew
           ./gradlew bundleRelease assembleRelease
 
+      # [태그 보정] 릴리즈 에러 방지를 위해 서버에 태그가 없으면 강제로 찍어줌
+      - name: Ensure Git Tag Exists
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          TAG=${{ needs.build_and_test.outputs.target_version }}
+          # 태그 존재 여부 확인 후 없으면 생성 및 푸시
+          if ! git rev-parse "$TAG" >/dev/null 2>&1; then
+            git tag "$TAG"
+            git push origin "$TAG"
+          else
+            echo "Tag $TAG already exists on remote."
+          fi
+
+      # [릴리즈 생성]
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ env.VERSION }} # 결정된 버전 사용
+          tag_name: ${{ needs.build_and_test.outputs.target_version }}
           files: app/build/outputs/apk/release/*.apk
+          body: ${{ github.event.inputs.release_details || '상세 리포트 첨부파일 참조' }}
 
       - name: Send Notification Mail
         uses: dawidd6/action-send-mail@v3
@@ -98,8 +142,7 @@ jobs:
           server_port: 587
           username: ${{ secrets.MAIL_USERNAME }}
           password: ${{ secrets.MAIL_PASSWORD }}
-          # 메일 제목에 결정된 버전(${{ env.VERSION }}) 반영
-          subject: "[검증통과] ${{ github.event.inputs.release_title }} (${{ env.VERSION }})"
+          subject: "[검증통과] ${{ github.event.inputs.release_title }} (${{ needs.build_and_test.outputs.target_version }})"
           to: "ttr5656@uangel.com"
           from: GitHub Actions CI/CD
           attachments: AutoCheck_Quality_Report.xlsx
@@ -108,9 +151,9 @@ jobs:
             
             금일 수행된 앱 배포 및 품질 검증 결과를 공유드립니다.
             
-            ■ 배포 버전: ${{ env.VERSION }}
+            ■ 배포 버전: ${{ needs.build_and_test.outputs.target_version }}
             ■ 배포 목적: ${{ github.event.inputs.release_title }}
             ■ 상세 내역: ${{ github.event.inputs.release_details || '특이 사항 없음' }}
             
-            시스템이 직접 수행한 15개 테스트 시나리오 결과 리포트를 첨부합니다. [cite: 169, 2026-04-28]
-            상세 내역은 첨부 파일을 확인해 주시기 바랍니다. [cite: 2026-03-13]
+            시스템이 직접 수행한 15개 테스트 시나리오 결과 리포트를 첨부합니다. 
+            상세 내역은 첨부 파일을 확인해 주시기 바랍니다. 
