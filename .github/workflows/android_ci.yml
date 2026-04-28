@@ -3,21 +3,18 @@ name: Android Production CI/CD (Firebase & Release)
 on:
   push:
     branches: [ "main" ]
-  schedule:
-    - cron: '0 23 * * *' # 매일 아침 8시(KST) 자동 실행
   workflow_dispatch:
     inputs:
       version_tag:
         description: '배포할 버전 (예: v1.0.6)'
         required: true
         default: 'v1.0.6'
-      release_note:
-        description: '부장님께 보고할 이번 배포의 주요 목적'
+      custom_message:
+        description: '부장님께 드릴 메시지'
         required: true
-        default: '시스템 안정화 및 마이너 버그 수정'
+        default: '시스템 안정화 및 15개 핵심 테스트 검증 완료 건 보고드립니다.'
 
 jobs:
-  # [1단계] 품질 리포트 생성 및 서버 업로드
   build_and_test:
     runs-on: ubuntu-latest
     steps:
@@ -31,42 +28,35 @@ jobs:
           distribution: 'temurin'
           cache: gradle
 
-      - name: Run Quality Check
-        run: |
-          chmod +x gradlew
-          ./gradlew lintDebug test
+      - name: Grant Execute Permission
+        run: chmod +x gradlew
 
-      # 린트 결과를 CSV로 변환 (꼼꼼한 팩트 중심 리포트)
-      - name: Generate Quality CSV Report
+      # [실행] JUnit 테스트 및 린트 실행
+      - name: Run Quality Check
+        run: ./gradlew lintDebug testDebugUnitTest
+
+      # --------------------------------------------------------------------------------
+      # [주석] 미래 고도화: Firebase Test Lab 가이드
+      # --------------------------------------------------------------------------------
+      # - name: Run Firebase Test Lab
+      #   run: |
+      #     gcloud firebase test android run --app debug.apk --test androidTest.apk
+      # --------------------------------------------------------------------------------
+
+      # [핵심] 실제 결과 XML을 읽어서 15개 항목 엑셀 리포트 생성
+      - name: Generate Quality Excel Report
         if: always()
         run: |
-          python -c "
-          import xml.etree.ElementTree as ET
-          import csv
-          import os
-          xml_path = 'app/build/reports/lint-results-debug.xml'
-          csv_path = 'daily_quality_report.csv'
-          if not os.path.exists(xml_path):
-              exit(0)
-          tree = ET.parse(xml_path)
-          root = tree.getroot()
-          with open(csv_path, 'w', newline='', encoding='utf-8-sig') as f:
-              writer = csv.writer(f)
-              writer.writerow(['심각도', '카테고리', '내용', '파일 경로', '라인'])
-              for issue in root.findall('issue'):
-                  location = issue.find('location')
-                  writer.writerow([issue.get('severity'), issue.get('category'), issue.get('message'), location.get('file'), location.get('line')])
-          "
+          pip install pandas xlsxwriter
+          python generate_report.py
 
-      # 파일을 서버 임시 저장소에 업로드
-      - name: Upload Quality Artifacts
+      - name: Upload Report to Artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: daily-quality-reports
-          path: daily_quality_report.csv
+          name: auto-check-reports
+          path: AutoCheck_Quality_Report.xlsx
 
-  # [2단계] 배포 및 엑셀 단독 첨부 메일 발송
   deploy:
     needs: build_and_test
     if: github.event_name == 'workflow_dispatch'
@@ -76,34 +66,11 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      # [중요] 서버 저장소에서 엑셀 파일을 다시 내려받음
-      - name: Download Quality Report
+      - name: Download Excel Report
         uses: actions/download-artifact@v4
         with:
-          name: daily-quality-reports
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
-        with:
-          java-version: '17'
-          distribution: 'temurin'
-
-      - name: Get Latest Commits
-        id: get_commits
-        run: |
-          TAGS=$(git tag --sort=-creatordate)
-          PREVIOUS_TAG=$(echo "$TAGS" | sed -n '2p')
-          if [ -z "$PREVIOUS_TAG" ]; then
-            COMMITS=$(git log --pretty=format:"- %s (%an)" -n 3)
-          else
-            COMMITS=$(git log $PREVIOUS_TAG..HEAD --pretty=format:"- %s (%an)")
-          fi
-          echo "COMMITS<<EOF" >> $GITHUB_ENV
-          echo "$COMMITS" >> $GITHUB_ENV
-          echo "EOF" >> $GITHUB_ENV
+          name: auto-check-reports
 
       - name: Build and Release
         run: |
@@ -115,29 +82,22 @@ jobs:
         with:
           tag_name: ${{ github.event.inputs.version_tag }}
           files: app/build/outputs/apk/release/*.apk
-          generate_release_notes: false
 
-      # 엑셀 파일(CSV)을 ZIP 압축 없이 단독으로 첨부하여 발송
-      - name: Send Release Notification Mail
+      - name: Send Notification Mail
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: smtp.gmail.com
           server_port: 587
           username: ${{ secrets.MAIL_USERNAME }}
           password: ${{ secrets.MAIL_PASSWORD }}
-          subject: "[릴리즈 완료] ${{ github.event.repository.name }} ${{ github.event.inputs.version_tag }}"
+          subject: "[검증통과] AutoCheck v2.0.x 품질 보고 (${{ github.event.inputs.version_tag }})"
           to: "ttr5656@uangel.com"
           from: GitHub Actions CI/CD
-          attachments: daily_quality_report.csv # 현재 경로에 있는 CSV 파일을 바로 첨부
+          attachments: AutoCheck_Quality_Report.xlsx
           body: |
             안녕하세요, 부장님. 안드로이드 개발팀 강효재입니다.
             
-            금일 신규 버전(${{ github.event.inputs.version_tag }})의 배포를 성공적으로 마쳤습니다.
-            별도의 압축 해제 없이 확인하실 수 있도록 상세 품질 리포트(엑셀)를 원본 그대로 첨부하였습니다. [cite: 169, 2026-04-28]
+            ${{ github.event.inputs.custom_message }}
             
-            ■ 배포 목적: ${{ github.event.inputs.release_note }}
-            ■ 상세 내역:
-            ${{ env.COMMITS }}
-            
-            감사합니다.
-            강효재 드림 (시스템 자동 발송)
+            금일 배포 건에 대해 시스템이 직접 수행한 15개 테스트 결과 리포트를 첨부합니다. [cite: 169, 2026-04-28]
+            꼼꼼하게 확인 부탁드립니다. [cite: 2026-03-13]
