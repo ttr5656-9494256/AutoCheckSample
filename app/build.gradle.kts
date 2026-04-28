@@ -12,8 +12,8 @@ android {
         applicationId = "com.example.autochecksample"
         minSdk = 24
         targetSdk = 36
-        versionCode = 5
-        versionName = "1.0.5"
+        versionCode = 6
+        versionName = "1.0.6"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -38,14 +38,32 @@ android {
 
 androidComponents {
     onVariants { variant ->
+        // 1. APK 이름 변경 (기존 성공 로직)
         variant.outputs.forEach { output ->
-            // [꼼꼼 체크] 타입 캐스팅 없이 직접 set() 메서드에 접근하는 가장 확실한 경로입니다.
             val versionName = android.defaultConfig.versionName ?: "1.0"
             val buildType = variant.buildType ?: "release"
             val newFileName = "autoCheckSample_v${versionName}_${buildType}.apk"
-
-            // 이 한 줄이 핵심입니다. 복잡한 캐스팅 없이 속성만 명확하게 지정합니다.
             (output as com.android.build.api.variant.impl.VariantOutputImpl).outputFileName.set(newFileName)
+        }
+
+        // 2. AAB 이름 변경 (태스크 존재 여부를 꼼꼼하게 확인)
+        val versionName = android.defaultConfig.versionName ?: "1.0"
+        val buildType = variant.buildType ?: "release"
+        val bundleTaskName = "bundle${variant.name.replaceFirstChar { it.uppercase() }}"
+
+        // named 대신 matching을 사용해 태스크가 생성된 경우에만 설정을 추가합니다.
+        tasks.matching { it.name == bundleTaskName }.configureEach {
+            doLast {
+                val bundleDir = File("${project.layout.buildDirectory.get()}/outputs/bundle/${buildType}")
+                val defaultFile = File(bundleDir, "app-${buildType}.aab")
+                val newFile = File(bundleDir, "autoCheckSample_v${versionName}_${buildType}.aab")
+
+                if (defaultFile.exists()) {
+                    if (defaultFile.renameTo(newFile)) {
+                        println("### AAB 이름 변경 완료: ${newFile.name}")
+                    }
+                }
+            }
         }
     }
 }
