@@ -21,7 +21,7 @@ on:
 jobs:
   build_and_test:
     runs-on: ubuntu-latest
-    # [중요] 결정된 버전을 다음 Job(deploy)에서 쓸 수 있게 명시적으로 출력
+    # [체크] 결정된 버전을 다음 Job(deploy)에서 쓸 수 있게 출력 설정
     outputs:
       target_version: ${{ env.VERSION }}
     steps:
@@ -40,7 +40,7 @@ jobs:
       - name: Grant Execute Permission
         run: chmod +x gradlew
 
-      # [버전 결정] 입력값이 없으면 최신 태그를 자동으로 가져옴
+      # [체크] 버전 결정 로직
       - name: Determine Version
         id: get_version
         run: |
@@ -51,14 +51,12 @@ jobs:
             echo "VERSION=${{ github.event.inputs.version_tag }}" >> $GITHUB_ENV
           fi
 
-      # [JUnit 실행] 15개 테스트 케이스 중 11개 유닛 테스트 수행
+      # [체크] JUnit 실행 - 15개 테스트 중 유닛 테스트 11건 수행
       - name: Run Quality Check
         run: ./gradlew lintDebug testDebugUnitTest
 
       # --------------------------------------------------------------------------------
-      # [Firebase Test Lab 주석 가이드]
-      # UI 테스트(LoginUiTest) 및 기기 테스트 결과를 실제 Pass/Fail로 보고하고 싶을 때
-      # 아래 주석을 해제하고 사용하세요. (GCP_SA_KEY 설정 필요)
+      # [복구] Firebase Test Lab 주석 가이드 (나중에 UI 테스트 연동 시 사용)
       # --------------------------------------------------------------------------------
       # - name: Build Test APK
       #   run: ./gradlew assembleDebug assembleDebugAndroidTest
@@ -77,7 +75,7 @@ jobs:
       #       --device model=oriole,version=33,locale=ko,orientation=portrait
       # --------------------------------------------------------------------------------
 
-      # [리포트 생성] 15개 항목이 담긴 엑셀 리포트 자동 생성
+      # [체크] 리포트 생성 - generate_report.py 실행
       - name: Generate Quality Excel Report
         if: always()
         run: |
@@ -113,13 +111,12 @@ jobs:
           chmod +x gradlew
           ./gradlew bundleRelease assembleRelease
 
-      # [태그 보정] 릴리즈 에러 방지를 위해 서버에 태그가 없으면 강제로 찍어줌
+      # [체크] 태그 보정 로직 (릴리즈 에러 방지 핵심)
       - name: Ensure Git Tag Exists
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           TAG=${{ needs.build_and_test.outputs.target_version }}
-          # 태그 존재 여부 확인 후 없으면 생성 및 푸시
           if ! git rev-parse "$TAG" >/dev/null 2>&1; then
             git tag "$TAG"
             git push origin "$TAG"
@@ -127,7 +124,7 @@ jobs:
             echo "Tag $TAG already exists on remote."
           fi
 
-      # [릴리즈 생성]
+      # [체크] 릴리즈 생성
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -135,6 +132,7 @@ jobs:
           files: app/build/outputs/apk/release/*.apk
           body: ${{ github.event.inputs.release_details || '상세 리포트 첨부파일 참조' }}
 
+      # [복구] 메일 발송 및 다운로드 링크 추가
       - name: Send Notification Mail
         uses: dawidd6/action-send-mail@v3
         with:
@@ -155,5 +153,8 @@ jobs:
             ■ 배포 목적: ${{ github.event.inputs.release_title }}
             ■ 상세 내역: ${{ github.event.inputs.release_details || '특이 사항 없음' }}
             
-            시스템이 직접 수행한 15개 테스트 시나리오 결과 리포트를 첨부합니다. 
-            상세 내역은 첨부 파일을 확인해 주시기 바랍니다. 
+            🔗 [배포 파일 다운로드 링크]
+            https://github.com/${{ github.repository }}/releases/tag/${{ needs.build_and_test.outputs.target_version }}
+            
+            시스템이 직접 수행한 15개 테스트 시나리오 결과 리포트를 첨부합니다. [cite: 169, 2026-04-28]
+            상세 내역은 첨부 파일을 확인해 주시기 바랍니다. [cite: 2026-03-13]
